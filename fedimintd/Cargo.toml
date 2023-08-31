@@ -40,6 +40,7 @@ fedimint-mint-server = { path = "../modules/fedimint-mint-server" }
 fedimint-rocksdb = { path = "../fedimint-rocksdb" }
 fedimint-server = { path = "../fedimint-server" }
 fedimint-wallet-server = { path = "../modules/fedimint-wallet-server" }
+stabilitypool-server = { path = "../modules/stabilitypool-server" }
 rand = "0.8"
 rayon = "1.6.1"
 rcgen = "=0.10.0"
