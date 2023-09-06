@@ -1,24 +1,23 @@
 pub mod api;
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use common::action::{self, ActionProposedDb};
 use common::config::{
-    EpochConfig, PoolClientConfig, PoolConfig, PoolConfigConsensus, PoolGenParams,
-    PoolConfigPrivate, PoolConfigLocal
+    EpochConfig, PoolClientConfig, PoolConfig, PoolConfigConsensus, PoolConfigLocal,
+    PoolConfigPrivate, PoolGenParams,
 };
 use common::db::AccountBalanceKeyPrefix;
-use common::PoolModuleTypes;
 use common::{
-    db, BackOff, ConsensusItemOutcome, OracleClient, PoolCommonGen, PoolConsensusItem, PoolInput,
-    PoolOutput, PoolOutputOutcome,
+    db, epoch, BackOff, ConsensusItemOutcome, OracleClient, PoolCommonGen, PoolConsensusItem,
+    PoolInput, PoolModuleTypes, PoolOutput, PoolOutputOutcome,
 };
 use fedimint_core::config::{
-    ClientModuleConfig, ConfigGenModuleParams, DkgResult, ServerModuleConfig,
-    ServerModuleConsensusConfig, TypedServerModuleConfig, TypedServerModuleConsensusConfig,
+    ConfigGenModuleParams, DkgResult, ServerModuleConfig, ServerModuleConsensusConfig,
+    TypedServerModuleConfig, TypedServerModuleConsensusConfig,
 };
 use fedimint_core::core::ModuleInstanceId;
 use fedimint_core::db::{Database, DatabaseVersion, ModuleDatabaseTransaction};
@@ -31,10 +30,7 @@ use fedimint_core::module::{
 use fedimint_core::server::DynServerModule;
 use fedimint_core::task::TaskGroup;
 use fedimint_core::{NumPeers, OutPoint, PeerId, ServerModule};
-use stabilitypool_common as common;
-
-use common::action::{self, ActionProposedDb};
-use common::epoch;
+pub use stabilitypool_common as common;
 
 // The default global max feerate.
 // TODO: Have this actually in config.
@@ -90,7 +86,7 @@ impl ServerModuleInit for PoolConfigGenerator {
                                 .consensus
                                 .start_epoch_at
                                 .map(|prim_datetime| prim_datetime.assume_utc())
-                                .unwrap_or_else(|| time::OffsetDateTime::now_utc())
+                                .unwrap_or_else(time::OffsetDateTime::now_utc)
                                 .unix_timestamp() as _,
                             epoch_length: params.consensus.epoch_length,
                             price_threshold: peers.threshold() as _,
@@ -128,7 +124,7 @@ impl ServerModuleInit for PoolConfigGenerator {
                         .consensus
                         .start_epoch_at
                         .map(|prim_datetime| prim_datetime.assume_utc())
-                        .unwrap_or_else(|| time::OffsetDateTime::now_utc())
+                        .unwrap_or_else(time::OffsetDateTime::now_utc)
                         .unix_timestamp() as _,
                     epoch_length: params.consensus.epoch_length,
                     price_threshold: peers.peers.threshold() as _,
@@ -157,10 +153,9 @@ impl ServerModuleInit for PoolConfigGenerator {
     ) -> anyhow::Result<PoolClientConfig> {
         let config = PoolConfigConsensus::from_erased(config)?;
         Ok(PoolClientConfig {
-                oracle: config.oracle,
-                collateral_ratio: config.epoch.collateral_ratio,
-            }
-        )
+            oracle: config.oracle,
+            collateral_ratio: config.epoch.collateral_ratio,
+        })
     }
 
     async fn dump_database(
@@ -214,7 +209,7 @@ impl ServerModule for StabilityPool {
     ) {
         // This method is `select_all`ed on across all modules.
         // We block until at least one of these happens:
-        // * At least one proposed action is avaliable
+        // * At least one proposed action is available
         // * Duration past requires us to send `PoolConsensusItem::EpochEnd`
         loop {
             if action::can_propose(dbtx, &self.proposed_db).await {
@@ -256,8 +251,7 @@ impl ServerModule for StabilityPool {
                 action::process_consensus_item(dbtx, &self.proposed_db, action_proposed).await
             }
             PoolConsensusItem::EpochEnd(epoch_end) => {
-                epoch::process_consensus_item(dbtx, self.epoch_config(), peer_id, epoch_end)
-                    .await
+                epoch::process_consensus_item(dbtx, self.epoch_config(), peer_id, epoch_end).await
             }
         };
 
@@ -289,7 +283,7 @@ impl ServerModule for StabilityPool {
         withdrawal: &'b PoolInput,
         _verification_cache: &Self::VerificationCache,
     ) -> Result<InputMeta, ModuleError> {
-        let avaliable = dbtx
+        let available = dbtx
             .get_value(&db::AccountBalanceKey(withdrawal.account))
             .await
             .map(|acc| acc.unlocked)
@@ -298,10 +292,10 @@ impl ServerModule for StabilityPool {
         // TODO: we should also deduct seeker/provider actions that are set for the next
         // round
 
-        if avaliable < withdrawal.amount {
-            return Err(WithdrawalError::UnavaliableFunds {
+        if available < withdrawal.amount {
+            return Err(WithdrawalError::UnavailableFunds {
                 amount: withdrawal.amount,
-                avaliable,
+                available,
             })
             .into_module_error_other();
         }
@@ -393,9 +387,12 @@ impl ServerModule for StabilityPool {
         audit: &mut Audit,
     ) {
         audit
-            .add_items(dbtx, common::KIND.as_str(), &AccountBalanceKeyPrefix, |_, v| {
-                ((v.unlocked + v.locked.amount()).msats) as i64
-            })
+            .add_items(
+                dbtx,
+                common::KIND.as_str(),
+                &AccountBalanceKeyPrefix,
+                |_, v| ((v.unlocked + v.locked.amount()).msats) as i64,
+            )
             .await;
     }
 
@@ -436,19 +433,19 @@ impl std::error::Error for StabilityPoolError {}
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum WithdrawalError {
-    UnavaliableFunds {
+    UnavailableFunds {
         amount: fedimint_core::Amount,
-        avaliable: fedimint_core::Amount,
+        available: fedimint_core::Amount,
     },
 }
 
 impl std::fmt::Display for WithdrawalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WithdrawalError::UnavaliableFunds { amount, avaliable } => write!(
+            WithdrawalError::UnavailableFunds { amount, available } => write!(
                 f,
-                "attempted to withdraw {} when only {} was avaliable",
-                amount, avaliable
+                "attempted to withdraw {} when only {} was available",
+                amount, available
             ),
         }
     }

@@ -127,7 +127,7 @@ pub async fn consensus_proposal(
     let epoch_state = EpochState::from_db(dbtx).await;
     let is_settled = epoch_state.is_settled();
 
-    // if we are in a settled state, and time requres epoch to end
+    // if we are in a settled state, and time requires epoch to end
     // propose `epoch_end` with `epoch_id = last_ended_epoch + 1`
     if is_settled && epoch_state.latest_ended < Some(expected_epoch) {
         // if is_settled && epoch_state.requires_ending(expected_epoch) {
@@ -186,9 +186,9 @@ pub async fn process_consensus_item(
             && epoch_end.price.is_none()
             && prev_epoch_end.price.is_some()
         {
-            return ConsensusItemOutcome::Ignored(format!(
-                "epoch: ignore backtrack of price proposal"
-            ));
+            return ConsensusItemOutcome::Ignored(
+                "epoch: ignore backtrack of price proposal".to_string(),
+            );
         }
     }
 
@@ -210,9 +210,9 @@ pub async fn process_consensus_item(
         ));
     }
     if needs_price && epoch_end.price.is_none() {
-        return ConsensusItemOutcome::Ignored(format!(
-            "epoch: end request requires price which is not provided",
-        ));
+        return ConsensusItemOutcome::Ignored(
+            "epoch: end request requires price which is not provided".to_string(),
+        );
     }
 
     // update epoch_end
@@ -239,7 +239,7 @@ pub async fn process_consensus_item(
     }
 
     // see if we can update `last_settled_epoch` with price tally: Map<price,
-    // occurences>
+    // occurrences>
     let price_tally = dbtx
         .find_by_prefix(&db::EpochEndKeyPrefix)
         .await

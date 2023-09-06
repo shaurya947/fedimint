@@ -1,14 +1,16 @@
-use crate::price::{BitMexOracle, MockOracle, OracleClient};
-use crate::stability_core::CollateralRatio;
-use crate::FileOracle;
-use crate::PoolCommonGen;
-use fedimint_core::config::EmptyGenParams;
-use fedimint_core::encoding::{Decodable, Encodable};
-use fedimint_core::{core::ModuleKind, plugin_types_trait_impl_config};
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
+
+use fedimint_core::config::EmptyGenParams;
+use fedimint_core::core::ModuleKind;
+use fedimint_core::encoding::{Decodable, Encodable};
+use fedimint_core::plugin_types_trait_impl_config;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+
+use crate::price::{BitMexOracle, MockOracle, OracleClient};
+use crate::stability_core::CollateralRatio;
+use crate::{FileOracle, PoolCommonGen};
 
 /// The default epoch length is 24hrs (represented in seconds).
 // pub const DEFAULT_EPOCH_LENGTH: u64 = 24 * 60 * 60;
@@ -35,7 +37,7 @@ impl OracleConfig {
                 url: reqwest::Url::parse(url).expect("invalid Url"),
             }),
             OracleConfig::File(path) => {
-                let path = PathBuf::from_str(&path).expect("must be valid path");
+                let path = PathBuf::from_str(path).expect("must be valid path");
                 Box::new(FileOracle { path })
             }
         }
@@ -137,55 +139,6 @@ impl std::fmt::Display for PoolClientConfig {
         )
     }
 }
-
-// impl TypedServerModuleConfig for PoolConfig {
-//     type Local = ();
-//     type Private = PoolConfigPrivate;
-//     type Consensus = PoolConfigConsensus;
-
-//     fn from_parts(_: Self::Local, private: Self::Private, consensus: Self::Consensus) -> Self {
-//         Self { private, consensus }
-//     }
-
-//     fn to_parts(
-//         self,
-//     ) -> (
-//         ModuleKind,
-//         Self::Local,
-//         Self::Private,
-//         Self::Consensus,
-//     ) {
-//         (KIND, (), self.private, self.consensus)
-//     }
-
-// }
-
-// impl TypedServerModuleConsensusConfig for PoolConfigConsensus {
-//     fn kind(&self) -> ModuleKind {
-//         KIND
-//     }
-
-//     fn version(&self) -> ModuleConsensusVersion {
-//         ModuleConsensusVersion(0)
-//     }
-
-//     fn to_client_config(&self) -> fedimint_core::config::ClientModuleConfig {
-//         fedimint_core::config::ClientModuleConfig::from_typed(
-//             KIND,
-//             &PoolConfigClient {
-//                 oracle: self.oracle.clone(),
-//                 collateral_ratio: self.epoch.collateral_ratio,
-//             },
-//         )
-//         .expect("serialization cannot fail")
-//     }
-// }
-
-// impl TypedClientModuleConfig for PoolConfigClient {
-//     fn kind(&self) -> fedimint_core::core::ModuleKind {
-//         KIND
-//     }
-// }
 
 plugin_types_trait_impl_config!(
     PoolCommonGen,

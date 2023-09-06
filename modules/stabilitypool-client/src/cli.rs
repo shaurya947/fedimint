@@ -1,9 +1,6 @@
 use std::ffi;
 use std::sync::Arc;
 
-use crate::common::stability_core::{self, CollateralRatio};
-use crate::common::{self, ActionStaged, EpochOutcome, ProviderBid, SeekerAction};
-use crate::{PoolClientExt, PoolClientModule};
 use clap::{Parser, Subcommand};
 use common::PoolStateMachine;
 use fedimint_client::sm::OperationId;
@@ -12,6 +9,10 @@ use fedimint_client::Client;
 use fedimint_core::core::IntoDynInstance;
 use fedimint_core::{Amount, OutPoint, TransactionId};
 use stabilitypool_server::api::{BalanceResponse, SideResponse};
+
+use crate::common::stability_core::{self, CollateralRatio};
+use crate::common::{self, ActionStaged, EpochOutcome, ProviderBid, SeekerAction};
+use crate::{PoolClientExt, PoolClientModule};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

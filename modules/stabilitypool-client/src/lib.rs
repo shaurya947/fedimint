@@ -5,40 +5,25 @@ use std::ffi;
 use async_trait::async_trait;
 use common::action::SignedAction;
 use common::config::PoolClientConfig;
-use common::Action;
-use common::ActionProposed;
-use common::ActionStaged;
-use common::EpochOutcome;
-use common::PoolCommonGen;
-use common::PoolModuleTypes;
-use common::ProviderBid;
-use common::SeekerAction;
-
+use common::{
+    Action, ActionProposed, ActionStaged, EpochOutcome, PoolCommonGen, PoolModuleTypes,
+    ProviderBid, SeekerAction,
+};
 use fedimint_client::derivable_secret::DerivableSecret;
 use fedimint_client::module::init::ClientModuleInit;
 use fedimint_client::module::ClientModule;
 use fedimint_client::sm::{DynState, ModuleNotifier, OperationId, State, StateTransition};
-
-use fedimint_client::Client;
-use fedimint_client::DynGlobalClientContext;
-use fedimint_core::api::DynGlobalApi;
-use fedimint_core::api::DynModuleApi;
-use fedimint_core::api::FederationApiExt;
-use fedimint_core::api::FederationError;
+use fedimint_client::{Client, DynGlobalClientContext};
+use fedimint_core::api::{DynGlobalApi, DynModuleApi, FederationApiExt, FederationError};
 use fedimint_core::config::FederationId;
 use fedimint_core::core::{IntoDynInstance, ModuleInstanceId};
 use fedimint_core::db::Database;
 use fedimint_core::encoding::{Decodable, Encodable};
-use fedimint_core::module::ApiRequestErased;
-use fedimint_core::module::ApiVersion;
-use fedimint_core::module::ExtendsCommonModuleInit;
-use fedimint_core::BitcoinHash;
-use fedimint_core::module::MultiApiVersion;
-use fedimint_core::{apply, async_trait_maybe_send};
+use fedimint_core::module::{
+    ApiRequestErased, ApiVersion, ExtendsCommonModuleInit, MultiApiVersion,
+};
+use fedimint_core::{apply, async_trait_maybe_send, BitcoinHash};
 use secp256k1_zkp::Secp256k1;
-
-use secp256k1::KeyPair;
-
 use stabilitypool_common as common;
 use stabilitypool_server::api::BalanceResponse;
 
@@ -88,9 +73,7 @@ impl ClientModule for PoolClientModule {
     type ModuleStateMachineContext = ();
     type States = PoolClientStates;
 
-    fn context(&self) -> Self::ModuleStateMachineContext {
-        unimplemented!()
-    }
+    fn context(&self) -> Self::ModuleStateMachineContext {}
 
     fn input_amount(
         &self,
@@ -111,9 +94,9 @@ impl ClientModule for PoolClientModule {
         client: &Client,
         args: &[ffi::OsString],
     ) -> anyhow::Result<serde_json::Value> {
-        let rng = rand::rngs::OsRng::default();
+        let rng = rand::rngs::OsRng;
         let output = cli::handle_cli_args(client, rng, args).await?;
-        Ok(serde_json::to_value(&output).expect("infallible"))
+        Ok(serde_json::to_value(output).expect("infallible"))
     }
 }
 
@@ -183,8 +166,8 @@ impl PoolClientExt for Client {
         pool_instance
             .api
             .request_current_consensus(
-                format!("/module/{}/account", common::KIND),
-                ApiRequestErased::new(&self.account_key().x_only_public_key().0),
+                "account".to_string(),
+                ApiRequestErased::new(self.account_key().x_only_public_key().0),
             )
             .await
     }
@@ -194,10 +177,7 @@ impl PoolClientExt for Client {
             self.get_first_module::<PoolClientModule>(&common::KIND);
         pool_instance
             .api
-            .request_current_consensus(
-                format!("/module/{}/epoch", common::KIND),
-                ApiRequestErased::new(&epoch_id),
-            )
+            .request_current_consensus("epoch".to_string(), ApiRequestErased::new(epoch_id))
             .await
     }
 
@@ -206,10 +186,7 @@ impl PoolClientExt for Client {
             self.get_first_module::<PoolClientModule>(&common::KIND);
         pool_instance
             .api
-            .request_current_consensus(
-                format!("/module/{}/epoch_next", common::KIND),
-                ApiRequestErased::default(),
-            )
+            .request_current_consensus("epoch_next".to_string(), ApiRequestErased::default())
             .await
     }
 
@@ -244,7 +221,7 @@ impl PoolClientExt for Client {
         pool_instance
             .api
             .request_current_consensus(
-                format!("/module/{}/action_propose", common::KIND),
+                "action_propose".to_string(),
                 ApiRequestErased::new(&signed_action),
             )
             .await
@@ -261,7 +238,7 @@ impl PoolClientExt for Client {
         pool_instance
             .api
             .request_current_consensus(
-                format!("/module/{}/action_propose", common::KIND),
+                "action_propose".to_string(),
                 ApiRequestErased::new(&signed_action),
             )
             .await
@@ -273,8 +250,8 @@ impl PoolClientExt for Client {
         pool_instance
             .api
             .request_current_consensus(
-                format!("/module/{}/action", common::KIND),
-                ApiRequestErased::new(&self.account_key().x_only_public_key().0),
+                "action".to_string(),
+                ApiRequestErased::new(self.account_key().x_only_public_key().0),
             )
             .await
     }
@@ -284,10 +261,7 @@ impl PoolClientExt for Client {
             self.get_first_module::<PoolClientModule>(&common::KIND);
         pool_instance
             .api
-            .request_current_consensus(
-                format!("/module/{}/state", common::KIND),
-                ApiRequestErased::default(),
-            )
+            .request_current_consensus("state".to_string(), ApiRequestErased::default())
             .await
     }
 }

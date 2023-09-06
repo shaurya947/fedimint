@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use common::account::AccountBalance;
 use common::LockedBalance;
 use fedimint_core::core::ModuleInstanceId;
 use fedimint_core::db::ModuleDatabaseTransaction;
@@ -9,51 +10,50 @@ use futures::StreamExt;
 use crate::action::{ActionProposed, ActionProposedDb, ActionStaged};
 use crate::epoch::{self, EpochOutcome, EpochState};
 use crate::{common, db, StabilityPool};
-use common::account::AccountBalance;
 
 pub fn endpoints() -> Vec<ApiEndpoint<StabilityPool>> {
     vec![
         // Get outcome of given `epoch_id`.
         api_endpoint! {
-            "/epoch",
+            "epoch",
             async |_module: &StabilityPool, context, epoch_id: u64| -> EpochOutcome {
                 epoch_outcome(&mut context.dbtx(), epoch_id).await
             }
         },
         // Get the `epoch_id` that the federation will accept user actions for.
         api_endpoint! {
-            "/epoch_next",
+            "epoch_next",
             async |_module: &StabilityPool, context, _request: ()| -> u64 {
                 Ok(epoch::EpochState::from_db(&mut context.dbtx()).await.staging_epoch_id())
             }
         },
         api_endpoint! {
-            "/epoch_last_settled",
+            "epoch_last_settled",
             async |_module: &StabilityPool, context, _request: ()| -> Option<u64> {
                 Ok(epoch::EpochState::from_db(&mut context.dbtx()).await.latest_settled)
             }
         },
         api_endpoint! {
-            "/account",
+            "account",
             async |_module: &StabilityPool, context, request: secp256k1_zkp::XOnlyPublicKey| -> BalanceResponse {
                 Ok(account(&mut context.dbtx(), request).await)
             }
         },
         api_endpoint! {
-            "/action",
+            "action",
             async |_module: &StabilityPool, context, request: secp256k1_zkp::XOnlyPublicKey| -> ActionStaged {
                 db::get(&mut context.dbtx(), &db::ActionStagedKey(request)).await
                     .ok_or(ApiError::not_found(format!("no action staged for account {}", request)))
             }
         },
         api_endpoint! {
-            "/action_propose",
+            "action_propose",
             async |module: &StabilityPool, context, request: ActionProposed| -> () {
                 propose_action(&mut context.dbtx(), &module.proposed_db, request).await
             }
         },
         api_endpoint! {
-            "/state",
+            "state",
             async |_module: &StabilityPool, context, _request: ()| -> State {
                 Ok(state(&mut context.dbtx()).await)
             }
@@ -163,7 +163,7 @@ pub async fn propose_action(
 ) -> Result<(), ApiError> {
     request
         .verify_signature()
-        .map_err(|_| ApiError::bad_request(format!("bad signature")))?;
+        .map_err(|_| ApiError::bad_request("bad signature".to_string()))?;
 
     let account_id = request.account_id();
     let next_epoch = EpochState::from_db(dbtx).await.staging_epoch_id();
@@ -189,7 +189,8 @@ pub async fn propose_action(
         }
     }
 
-    Ok(proposed_db.insert(request))
+    proposed_db.insert(request);
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

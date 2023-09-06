@@ -274,14 +274,16 @@ pub async fn process_consensus_item(
 ) -> ConsensusItemOutcome {
     if incoming_action.verify_signature().is_err() {
         proposal_db.pop_entry(&incoming_action);
-        return ConsensusItemOutcome::Banned(format!("proposed user action has invalid signature"));
+        return ConsensusItemOutcome::Banned(
+            "proposed user action has invalid signature".to_string(),
+        );
     }
 
     let epoch_state = EpochState::from_db(dbtx).await;
     if !epoch_state.is_settled() {
-        return ConsensusItemOutcome::Ignored(format!(
-            "epoch is in an unsettled state, cannot stage user action"
-        ));
+        return ConsensusItemOutcome::Ignored(
+            "epoch is in an unsettled state, cannot stage user action".to_string(),
+        );
     }
 
     let next_epoch_id = epoch_state.staging_epoch_id();
@@ -317,5 +319,5 @@ pub async fn process_consensus_item(
 
     proposal_db.pop_entry(&incoming_action);
     db::set(dbtx, &db_key, &incoming_action.into()).await;
-    return ConsensusItemOutcome::Applied;
+    ConsensusItemOutcome::Applied
 }

@@ -66,7 +66,16 @@ pub struct ProviderBid {
 
 /// Ratio of seeker position to provider collateral.
 #[derive(
-    Clone, Copy, Debug, Hash, serde::Serialize, serde::Deserialize, PartialEq, Eq, Encodable, Decodable,
+    Clone,
+    Copy,
+    Debug,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Encodable,
+    Decodable,
 )]
 pub struct CollateralRatio {
     pub seeker: u8,
@@ -268,7 +277,7 @@ pub fn match_locks_and_bids(
     seeker_locks.retain(|lock| {
         if lock.value == 0 ||
             // We need to ignore seeker locks after we've already got a ridiculously large amount
-            // seeker value to avoid overlflows later on.
+            // seeker value to avoid overflows later on.
             total_seeker_demand.saturating_add(lock.value) > MAX_TOTAL_SEEKER_VALUE
         {
             return false;
@@ -852,7 +861,7 @@ mod tests {
             .map(|provider| provider.max_value)
             .sum::<u64>();
 
-        let before_epoch_start = std::time::Instant::now();
+        let before_epoch_start = fedimint_core::time::now();
         let (feerate, seeker_entries, provider_entries) =
             match_locks_and_bids(seekers, providers, pool_ratio);
         println!("epoch_start elapsed: {:?}", before_epoch_start.elapsed());
@@ -889,7 +898,7 @@ mod tests {
             fudge_msat
         );
 
-        let before_epoch_end = std::time::Instant::now();
+        let before_epoch_end = fedimint_core::time::now();
         let (seeker_payouts, provider_payouts) = calculate_payouts(
             feerate,
             seeker_entries.clone(),
@@ -995,8 +1004,8 @@ mod tests {
                 provider: 1
             };
             let end_price = (start_price as i64 + (start_price as i64 * price_change / 100)) as u64;
-            let seekers = CACHED_TEST_DATA.0.iter().cloned().take(n_seekers).collect();
-            let providers = CACHED_TEST_DATA.1.iter().cloned().take(n_providers).collect();
+            let seekers = CACHED_TEST_DATA.0.iter().take(n_seekers).cloned().collect();
+            let providers = CACHED_TEST_DATA.1.iter().take(n_providers).cloned().collect();
 
             test_guarantees(seekers, providers, start_price, end_price, pool_ratio, 2);
         }
@@ -1016,8 +1025,8 @@ mod tests {
             };
             let end_price = (start_price as i64 + (start_price as i64 * price_change / 100)) as u64;
 
-            let seekers = CACHED_TEST_DATA.0.iter().cloned().take(n_seekers).collect();
-            let providers = CACHED_TEST_DATA.1.iter().cloned().take(n_providers).collect();
+            let seekers = CACHED_TEST_DATA.0.iter().take(n_seekers).cloned().collect();
+            let providers = CACHED_TEST_DATA.1.iter().take(n_providers).cloned().collect();
             // NOTE: Errors are larger with more drastic leverage ratios -- this is an empirically discovered bound
             let fudge = pool_ratio.seeker.max(pool_ratio.provider) as u64 * 2;
             test_guarantees(seekers, providers, start_price, end_price, pool_ratio, fudge);
