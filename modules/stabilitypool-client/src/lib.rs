@@ -20,9 +20,10 @@ use fedimint_core::core::{IntoDynInstance, ModuleInstanceId};
 use fedimint_core::db::Database;
 use fedimint_core::encoding::{Decodable, Encodable};
 use fedimint_core::module::{
-    ApiRequestErased, ApiVersion, ExtendsCommonModuleInit, MultiApiVersion,
+    ApiRequestErased, ApiVersion, ExtendsCommonModuleInit, ModuleCommon, MultiApiVersion,
+    TransactionItemAmount,
 };
-use fedimint_core::{apply, async_trait_maybe_send, BitcoinHash};
+use fedimint_core::{apply, async_trait_maybe_send, Amount, BitcoinHash};
 use secp256k1_zkp::Secp256k1;
 use stabilitypool_common as common;
 use stabilitypool_server::api::BalanceResponse;
@@ -75,18 +76,23 @@ impl ClientModule for PoolClientModule {
 
     fn context(&self) -> Self::ModuleStateMachineContext {}
 
-    fn input_amount(
-        &self,
-        _input: &<Self::Common as fedimint_core::module::ModuleCommon>::Input,
-    ) -> fedimint_core::module::TransactionItemAmount {
-        todo!()
+    fn input_amount(&self, input: &<Self::Common as ModuleCommon>::Input) -> TransactionItemAmount {
+        // TODO shaurya figure out fees
+        TransactionItemAmount {
+            amount: input.amount,
+            fee: Amount::ZERO,
+        }
     }
 
     fn output_amount(
         &self,
-        _output: &<Self::Common as fedimint_core::module::ModuleCommon>::Output,
-    ) -> fedimint_core::module::TransactionItemAmount {
-        todo!()
+        output: &<Self::Common as ModuleCommon>::Output,
+    ) -> TransactionItemAmount {
+        // TODO shaurya figure out fees
+        TransactionItemAmount {
+            amount: output.amount,
+            fee: Amount::ZERO,
+        }
     }
 
     async fn handle_cli_command(

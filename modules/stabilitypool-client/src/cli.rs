@@ -241,6 +241,11 @@ pub(crate) async fn handle_command(
                 .finalize_and_submit_transaction(op_id, common::KIND.as_str(), outpoint, tx)
                 .await?;
 
+            client
+                .transaction_updates(op_id)
+                .await
+                .await_tx_accepted(txid)
+                .await?;
             Ok(PoolCliOutput::Deposit {
                 deposit_tx: OutPoint { txid, out_idx: 0 },
             })
@@ -276,6 +281,11 @@ pub(crate) async fn handle_command(
                 .finalize_and_submit_transaction(op_id, common::KIND.as_str(), outpoint, tx)
                 .await?;
 
+            client
+                .transaction_updates(op_id)
+                .await
+                .await_tx_accepted(txid)
+                .await?;
             Ok(PoolCliOutput::Withdraw { withdraw_tx: txid })
         }
         PoolCommand::Action(action) => {
