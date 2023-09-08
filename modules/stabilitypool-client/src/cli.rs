@@ -1,6 +1,7 @@
 use std::ffi;
 use std::sync::Arc;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use common::PoolStateMachine;
 use fedimint_client::sm::OperationId;
@@ -286,6 +287,11 @@ pub(crate) async fn handle_command(
                 .await
                 .await_tx_accepted(txid)
                 .await?;
+            // Wait for the output of the primary module
+            client
+                .await_primary_module_output(op_id, OutPoint { txid, out_idx: 0 })
+                .await
+                .context("Waiting for the output of withdraw")?;
             Ok(PoolCliOutput::Withdraw { withdraw_tx: txid })
         }
         PoolCommand::Action(action) => {
