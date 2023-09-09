@@ -1,5 +1,7 @@
 mod cli;
 
+mod db;
+
 use std::ffi;
 
 use async_trait::async_trait;
@@ -17,7 +19,7 @@ use fedimint_client::{Client, DynGlobalClientContext};
 use fedimint_core::api::{DynGlobalApi, DynModuleApi, FederationApiExt, FederationError};
 use fedimint_core::config::FederationId;
 use fedimint_core::core::{IntoDynInstance, ModuleInstanceId};
-use fedimint_core::db::Database;
+use fedimint_core::db::{AutocommitError, Database};
 use fedimint_core::encoding::{Decodable, Encodable};
 use fedimint_core::module::{
     ApiRequestErased, ApiVersion, ExtendsCommonModuleInit, ModuleCommon, MultiApiVersion,
@@ -147,7 +149,7 @@ pub trait PoolClientExt {
     async fn create_signed_acton<T: Encodable + Send>(
         &self,
         unsigned_action: T,
-    ) -> Result<SignedAction<T>, FederationError>;
+    ) -> anyhow::Result<SignedAction<T>>;
 
     async fn propose_seeker_action(&self, action: SeekerAction) -> Result<(), FederationError>;
 
@@ -199,9 +201,31 @@ impl PoolClientExt for Client {
     async fn create_signed_acton<T: Encodable + Send>(
         &self,
         unsigned_action: T,
-    ) -> Result<SignedAction<T>, FederationError> {
+    ) -> anyhow::Result<SignedAction<T>> {
         let kp = self.account_key();
-        let sequence = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+        let sequence = self
+            .db()
+            .autocommit(
+                |dbtx| {
+                    Box::pin(async move {
+                        let (_, instance) =
+                            self.get_first_module::<PoolClientModule>(&common::KIND);
+                        let mut module_dbtx = dbtx.with_module_prefix(instance.id);
+                        let nonce = module_dbtx.get_value(&db::NonceKey).await.unwrap_or(1u64);
+                        let next_nonce = nonce + 1;
+                        module_dbtx.insert_entry(&db::NonceKey, &next_nonce).await;
+                        Ok(nonce)
+                    })
+                },
+                Some(100),
+            )
+            .await
+            .map_err(|e| match e {
+                AutocommitError::ClosureError { error, .. } => error,
+                AutocommitError::CommitFailed { last_error, .. } => {
+                    anyhow::anyhow!("Commit to DB failed: {last_error}")
+                }
+            })?;
         let action = Action {
             epoch_id: self.staging_epoch().await?,
             sequence,
