@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use anyhow::bail;
 use bitcoin::XOnlyPublicKey;
 use fedimint_core::core::ModuleInstanceId;
 use fedimint_core::db::ModuleDatabaseTransaction;
@@ -12,10 +13,7 @@ use time::OffsetDateTime;
 use crate::action::{Action, ActionStaged, ProviderBid, SeekerAction};
 use crate::config::EpochConfig;
 use crate::stability_core::{self, EpochFeerate};
-use crate::{
-    db, AccountBalance, BackOff, ConsensusItemOutcome, LockedBalance, OracleClient,
-    PoolConsensusItem,
-};
+use crate::{db, AccountBalance, BackOff, LockedBalance, OracleClient, PoolConsensusItem};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize, Encodable, Decodable)]
 pub struct EpochEnd {
@@ -171,24 +169,23 @@ pub async fn process_consensus_item(
     config: &EpochConfig,
     peer_id: PeerId,
     epoch_end: EpochEnd,
-) -> ConsensusItemOutcome {
+) -> anyhow::Result<()> {
     // check epoch_end item relative to previous epoch_end item
     if let Some(prev_epoch_end) = db::get(dbtx, &db::EpochEndKey(peer_id)).await {
         // you cannot backtrack on epoch_end
         if epoch_end.epoch_id < prev_epoch_end.epoch_id {
-            return ConsensusItemOutcome::Banned(format!(
+            bail!(
                 "attempted to backtrack on epoch_end (previous_epoch_end: {}, this_epoch_end: {})",
-                prev_epoch_end.epoch_id, epoch_end.epoch_id
-            ));
+                prev_epoch_end.epoch_id,
+                epoch_end.epoch_id
+            );
         }
         // we don't mark backtracking of price proposals
         if epoch_end.epoch_id == prev_epoch_end.epoch_id
             && epoch_end.price.is_none()
             && prev_epoch_end.price.is_some()
         {
-            return ConsensusItemOutcome::Ignored(
-                "epoch: ignore backtrack of price proposal".to_string(),
-            );
+            bail!("epoch: ignore backtrack of price proposal");
         }
     }
 
@@ -198,21 +195,21 @@ pub async fn process_consensus_item(
     // check requirements for epoch_end
     let (expected_epoch_end_id, needs_price) = epoch_state.expected_epoch_end_id();
     if epoch_end.epoch_id > expected_epoch_end_id {
-        return ConsensusItemOutcome::Banned(format!(
+        bail!(
             "skipped epoch {}, got {} instead",
-            expected_epoch_end_id, epoch_end.epoch_id
-        ));
+            expected_epoch_end_id,
+            epoch_end.epoch_id
+        );
     }
     if epoch_end.epoch_id < expected_epoch_end_id {
-        return ConsensusItemOutcome::Ignored(format!(
+        bail!(
             "epoch: end request's epoch id ({}) is not the epoch ({}) we are ending",
-            epoch_end.epoch_id, expected_epoch_end_id,
-        ));
+            epoch_end.epoch_id,
+            expected_epoch_end_id,
+        );
     }
     if needs_price && epoch_end.price.is_none() {
-        return ConsensusItemOutcome::Ignored(
-            "epoch: end request requires price which is not provided".to_string(),
-        );
+        bail!("epoch: end request requires price which is not provided");
     }
 
     // update epoch_end
@@ -233,7 +230,7 @@ pub async fn process_consensus_item(
             .count();
 
         if count < threshold {
-            return ConsensusItemOutcome::Applied;
+            return Ok(());
         }
         db::set(dbtx, &db::LastEpochEndedKey, &expected_epoch_end_id).await;
     }
@@ -370,7 +367,7 @@ pub async fn process_consensus_item(
         .await;
     }
 
-    ConsensusItemOutcome::Applied
+    Ok(())
 }
 
 /// Calculate payouts from this epoch's positions and unlock these payouts into

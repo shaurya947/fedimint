@@ -3,15 +3,18 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Mutex;
 
+use anyhow::bail;
 use fedimint_core::core::ModuleInstanceId;
 use fedimint_core::db::ModuleDatabaseTransaction;
 use fedimint_core::encoding::{Decodable, Encodable};
-use fedimint_core::BitcoinHash;
+use fedimint_core::{BitcoinHash, PeerId};
+use futures::StreamExt;
 use secp256k1_zkp::Secp256k1;
 use serde::{Deserialize, Serialize};
 
+use crate::db::{ActionProposedKey, ActionProposedSignaturePrefix};
 use crate::epoch::{self, EpochState};
-use crate::{db, ConsensusItemOutcome, PoolConsensusItem};
+use crate::{db, PoolConsensusItem};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Encodable, Decodable)]
 pub enum ActionProposed {
@@ -45,6 +48,13 @@ impl ActionProposed {
         match self {
             ActionProposed::Seeker(sa) => sa.verify_signature(),
             ActionProposed::Provider(sa) => sa.verify_signature(),
+        }
+    }
+
+    pub fn signature(&self) -> secp256k1_zkp::schnorr::Signature {
+        match self {
+            ActionProposed::Seeker(sa) => sa.signature,
+            ActionProposed::Provider(sa) => sa.signature,
         }
     }
 }
@@ -270,36 +280,34 @@ pub async fn consensus_proposal(
 pub async fn process_consensus_item(
     dbtx: &mut ModuleDatabaseTransaction<'_, ModuleInstanceId>,
     proposal_db: &ActionProposedDb,
+    peer_id: PeerId,
     incoming_action: ActionProposed,
-) -> ConsensusItemOutcome {
+    peer_threshold: u32,
+) -> anyhow::Result<()> {
     if incoming_action.verify_signature().is_err() {
         proposal_db.pop_entry(&incoming_action);
-        return ConsensusItemOutcome::Banned(
-            "proposed user action has invalid signature".to_string(),
-        );
+        bail!("proposed user action has invalid signature");
     }
 
     let epoch_state = EpochState::from_db(dbtx).await;
     if !epoch_state.is_settled() {
-        return ConsensusItemOutcome::Ignored(
-            "epoch is in an unsettled state, cannot stage user action".to_string(),
-        );
+        bail!("epoch is in an unsettled state, cannot stage user action");
     }
 
     let next_epoch_id = epoch_state.staging_epoch_id();
     if next_epoch_id != incoming_action.epoch_id() {
         proposal_db.pop_entry(&incoming_action);
-        return ConsensusItemOutcome::Ignored(format!(
+        bail!(
             "proposed action's epoch ({}) is not the next epoch ({})",
             incoming_action.epoch_id(),
-            next_epoch_id
-        ));
+            next_epoch_id,
+        );
     }
 
-    let db_key = db::ActionStagedKey(incoming_action.account_id());
+    let action_staged_key = db::ActionStagedKey(incoming_action.account_id());
 
     // existing staged action
-    let existing_action = db::get(dbtx, &db_key).await;
+    let existing_action = db::get(dbtx, &action_staged_key).await;
 
     let min_sequence = existing_action.map_or(0_u64, |a| {
         if a.epoch_id() < next_epoch_id {
@@ -310,14 +318,36 @@ pub async fn process_consensus_item(
     });
     if incoming_action.sequence() < min_sequence {
         proposal_db.pop_entry(&incoming_action);
-        return ConsensusItemOutcome::Ignored(format!(
+        bail!(
             "action: invalid sequence ({}), min_sequence ({})",
             incoming_action.sequence(),
             min_sequence,
-        ));
+        );
+    }
+
+    let action_proposed_key = ActionProposedKey(incoming_action.signature(), peer_id);
+    if db::get(dbtx, &action_proposed_key).await.is_some() {
+        bail!("Already received peer's proposed action for account");
+    }
+
+    db::set(dbtx, &action_proposed_key, &incoming_action).await;
+
+    let action_proposed_signature_prefix =
+        ActionProposedSignaturePrefix(incoming_action.signature());
+    let proposed_actions_with_signature = dbtx
+        .find_by_prefix(&action_proposed_signature_prefix)
+        .await
+        .map(|(key, action)| (key.1, action))
+        .collect::<Vec<_>>()
+        .await;
+
+    if proposed_actions_with_signature.len() < peer_threshold as usize {
+        return Ok(());
     }
 
     proposal_db.pop_entry(&incoming_action);
-    db::set(dbtx, &db_key, &incoming_action.into()).await;
-    ConsensusItemOutcome::Applied
+    dbtx.remove_by_prefix(&action_proposed_signature_prefix)
+        .await;
+    db::set(dbtx, &action_staged_key, &incoming_action.into()).await;
+    Ok(())
 }

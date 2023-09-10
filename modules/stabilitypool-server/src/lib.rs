@@ -246,28 +246,21 @@ impl ServerModule for StabilityPool {
         consensus_item: PoolConsensusItem,
         peer_id: PeerId,
     ) -> anyhow::Result<()> {
-        let outcome = match consensus_item {
+        match consensus_item {
             PoolConsensusItem::ActionProposed(action_proposed) => {
-                action::process_consensus_item(dbtx, &self.proposed_db, action_proposed).await
+                action::process_consensus_item(
+                    dbtx,
+                    &self.proposed_db,
+                    peer_id,
+                    action_proposed,
+                    self.epoch_config().price_threshold,
+                )
+                .await
             }
             PoolConsensusItem::EpochEnd(epoch_end) => {
                 epoch::process_consensus_item(dbtx, self.epoch_config(), peer_id, epoch_end).await
             }
-        };
-
-        match outcome {
-            ConsensusItemOutcome::Applied => {
-                tracing::info!(peer = peer_id.to_usize(), "APPLIED")
-            }
-            ConsensusItemOutcome::Ignored(reason) => {
-                tracing::debug!(peer = peer_id.to_usize(), reason, "IGNORED")
-            }
-            ConsensusItemOutcome::Banned(reason) => {
-                tracing::warn!(peer = peer_id.to_usize(), reason, "BANNED")
-            }
-        };
-
-        Ok(())
+        }
     }
 
     fn build_verification_cache<'a>(

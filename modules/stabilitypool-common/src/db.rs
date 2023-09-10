@@ -10,7 +10,7 @@ use strum_macros::EnumIter;
 
 use crate::action::ActionStaged;
 use crate::epoch::EpochOutcome;
-use crate::{AccountBalance, EpochEnd};
+use crate::{AccountBalance, ActionProposed, EpochEnd};
 
 #[repr(u8)]
 #[derive(Clone, EnumIter, Debug)]
@@ -41,7 +41,12 @@ pub enum DbKeyPrefix {
     /// Value: EpochEnd
     EpochEnd,
 
-    /// User action staged for the next epoch (Consensus Item)
+    /// User action proposed with signature from given peer (Consensus Item).
+    ///   Key: tuple of (schnorr signature, PeerId)
+    /// Value: action::ActionProposed
+    ActionProposed,
+
+    /// User action staged for the next epoch.
     ///   Key: x-only-pubkey (account id)
     /// Value: action::ActionStaged
     ActionStaged,
@@ -150,6 +155,35 @@ impl_db_record!(
     db_prefix = DbKeyPrefix::EpochEnd,
 );
 impl_db_lookup!(key = EpochEndKey, query_prefix = EpochEndKeyPrefix,);
+
+#[derive(
+    Debug, Clone, Encodable, Decodable, Eq, PartialEq, Hash, Serialize, Deserialize, Ord, PartialOrd,
+)]
+pub struct ActionProposedKey(
+    pub secp256k1_zkp::schnorr::Signature,
+    pub fedimint_core::PeerId,
+);
+
+#[derive(
+    Debug, Clone, Encodable, Decodable, Eq, PartialEq, Hash, Serialize, Deserialize, Ord, PartialOrd,
+)]
+pub struct ActionProposedKeyPrefix;
+
+#[derive(
+    Debug, Clone, Encodable, Decodable, Eq, PartialEq, Hash, Serialize, Deserialize, Ord, PartialOrd,
+)]
+pub struct ActionProposedSignaturePrefix(pub secp256k1_zkp::schnorr::Signature);
+
+impl_db_record!(
+    key = ActionProposedKey,
+    value = ActionProposed,
+    db_prefix = DbKeyPrefix::ActionProposed,
+);
+impl_db_lookup!(
+    key = ActionProposedKey,
+    query_prefix = ActionProposedKeyPrefix,
+    query_prefix = ActionProposedSignaturePrefix
+);
 
 #[derive(
     Debug, Clone, Encodable, Decodable, Eq, PartialEq, Hash, Serialize, Deserialize, Ord, PartialOrd,
