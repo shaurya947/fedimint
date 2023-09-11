@@ -31,6 +31,7 @@ pub struct Federation {
 /// `fedimint-cli` instance (basically path with client state: config + db)
 pub struct Client {
     path: PathBuf,
+    name: String,
 }
 
 impl Client {
@@ -63,7 +64,33 @@ impl Client {
         .run()
         .await?;
 
-        Ok(Self { path: client_dir })
+        Ok(Self {
+            path: client_dir,
+            name: name.to_owned(),
+        })
+    }
+
+    /// Create a [`Client`] that starts off without any state.
+    async fn new_forked_without_state(name: &str) -> Result<Client> {
+        let workdir: PathBuf = env::var("FM_DATA_DIR")?.parse()?;
+        let client_dir = workdir.join("clients").join(name);
+
+        std::fs::create_dir_all(&client_dir)?;
+
+        Ok(Self {
+            path: client_dir,
+            name: name.to_owned(),
+        })
+    }
+
+    pub async fn balance(&self) -> Result<u64> {
+        Ok(cmd!(self, "info").out_json().await?["total_amount_msat"]
+            .as_u64()
+            .unwrap())
+    }
+
+    pub async fn join_federation(&self, invite_code: String) -> Result<()> {
+        cmd!(self, "join-federation", invite_code).run().await
     }
 
     pub async fn cmd(&self) -> Command {
@@ -157,6 +184,12 @@ impl Federation {
         Client::new_forked(name).await
     }
 
+    /// Fork the built-in client of `Federation` (without copying state)
+    /// and give it a name
+    pub async fn fork_client_without_state(&self, name: &str) -> Result<Client> {
+        Client::new_forked_without_state(name).await
+    }
+
     pub async fn start_server(&mut self, process_mgr: &ProcessManager, peer: usize) -> Result<()> {
         if self.members.contains_key(&peer) {
             bail!("fedimintd-{peer} already running");
@@ -195,6 +228,25 @@ impl Federation {
         self.bitcoind.mine_blocks(100).await?;
 
         cmd!(self, "await-deposit", deposit_operation_id)
+            .run()
+            .await?;
+        Ok(())
+    }
+
+    pub async fn pegin_for_client(&self, amount: u64, client: &Client) -> Result<()> {
+        info!(client.name, amount, "Peg-in");
+        // Some blocks must always be mined first before pegin
+        self.await_minimum_blocks().await?;
+        let deposit = cmd!(client, "deposit-address").out_json().await?;
+        let deposit_address = deposit["address"].as_str().unwrap();
+        let deposit_operation_id = deposit["operation_id"].as_str().unwrap();
+
+        self.bitcoind
+            .send_to(deposit_address.to_owned(), amount)
+            .await?;
+        self.bitcoind.mine_blocks(100).await?;
+
+        cmd!(client, "await-deposit", deposit_operation_id)
             .run()
             .await?;
         Ok(())

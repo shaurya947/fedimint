@@ -2,13 +2,13 @@ use std::env;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bitcoincore_rpc::bitcoin;
 use bitcoincore_rpc::bitcoin::hashes::hex::ToHex;
 use bitcoincore_rpc::bitcoin::Txid;
 use clap::{Parser, Subcommand};
 use cln_rpc::primitives::{Amount as ClnRpcAmount, AmountOrAny};
-use devimint::federation::{Federation, Fedimintd};
+use devimint::federation::{Client, Federation, Fedimintd};
 use devimint::util::{poll, poll_max_retries, poll_value, ProcessManager};
 use devimint::{
     cmd, dev_fed, external_daemons, vars, DevFed, ExternalDaemons, Gatewayd, LightningNode,
@@ -127,6 +127,58 @@ pub async fn latency_tests(dev_fed: DevFed) -> Result<()> {
               AVG LN RECV TIME: {ln_recv_time:.3}"
     );
     Ok(())
+}
+
+async fn stability_pool_test(dev_fed: DevFed) -> Result<()> {
+    let DevFed { fed, .. } = dev_fed;
+
+    // Get clients for seeker and provider
+    let (seeker, provider) = (
+        fed.fork_client_without_state("seeker").await?,
+        fed.fork_client_without_state("provider").await?,
+    );
+
+    // Make them join the federation
+    let invite_code = fed.invite_code()?;
+    seeker.join_federation(invite_code.clone()).await?;
+    provider.join_federation(invite_code).await?;
+
+    // Peg in for seeker and provider and verify balances
+    fed.pegin_for_client(10_000, &seeker).await?;
+    fed.pegin_for_client(15_000, &provider).await?;
+    assert_eq!(seeker.balance().await?, 10_000_000);
+    assert_eq!(provider.balance().await?, 15_000_000);
+
+    // Verify seeker and provider have no balance in the Stability Pool
+    assert_eq!(0, get_unlocked_sp_bal(&seeker).await?);
+    assert_eq!(0, get_unlocked_sp_bal(&provider).await?);
+
+    // Make Seeker and Provider deposit into the stability pool
+    // cmd!(seeker, "module", "--module", "3", "command", )
+    // verify ecash + unlocked balances for client 1 and 2
+    // client 1 seeker lock, client 2 provider bid
+    // verify staged actions for client 1 and 2
+    // wait for epoch start
+    // verify locked balances for client 1 and 2
+    // client 1 seeker unlock, client 2 provider bid with 0 amount
+    // wait for epoch end
+    // verify unlocked balances for client 1 and 2 contain payouts
+    // withdraw SP for client 1 + 2
+    // verify ecash + unlocked balances for client 1 and 2
+    Ok(())
+}
+
+async fn get_unlocked_sp_bal(client: &Client) -> Result<u64> {
+    let cmd_out_json = cmd!(client, "module", "--module=3", "command", "balance")
+        .out_json()
+        .await?;
+    Ok(cmd_out_json["balance"]
+        .as_object()
+        .ok_or(anyhow!("must have balance object"))?["balance"]
+        .as_object()
+        .ok_or(anyhow!("must have nested balance object"))?["unlocked"]
+        .as_u64()
+        .ok_or(anyhow!("unlocked balance must be valid u64"))?)
 }
 
 async fn cli_tests(dev_fed: DevFed) -> Result<()> {
@@ -1049,6 +1101,7 @@ enum Cmd {
     LightningReconnectTest,
     #[clap(flatten)]
     Rpc(RpcCmd),
+    StabilityPoolTest,
 }
 
 #[derive(Subcommand)]
@@ -1240,6 +1293,11 @@ async fn handle_command() -> Result<()> {
             lightning_gw_reconnect_test(dev_fed, &process_mgr).await?;
         }
         Cmd::Rpc(rpc) => rpc_command(rpc, args.common).await?,
+        Cmd::StabilityPoolTest => {
+            let (process_mgr, _) = setup(args.common).await?;
+            let dev_fed = dev_fed(&process_mgr).await?;
+            stability_pool_test(dev_fed).await?;
+        }
     }
     Ok(())
 }
