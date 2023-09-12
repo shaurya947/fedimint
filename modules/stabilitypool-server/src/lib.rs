@@ -12,8 +12,8 @@ use common::config::{
 };
 use common::db::AccountBalanceKeyPrefix;
 use common::{
-    db, epoch, BackOff, ConsensusItemOutcome, OracleClient, PoolCommonGen, PoolConsensusItem,
-    PoolInput, PoolModuleTypes, PoolOutput, PoolOutputOutcome,
+    db, epoch, BackOff, OracleClient, PoolCommonGen, PoolConsensusItem, PoolInput, PoolModuleTypes,
+    PoolOutput, PoolOutputOutcome,
 };
 use fedimint_core::config::{
     ConfigGenModuleParams, DkgResult, ServerModuleConfig, ServerModuleConsensusConfig,
@@ -213,11 +213,11 @@ impl ServerModule for StabilityPool {
         // * Duration past requires us to send `PoolConsensusItem::EpochEnd`
         loop {
             if action::can_propose(dbtx, &self.proposed_db).await {
-                tracing::debug!("can propose: action");
+                tracing::info!("can propose: action");
                 return;
             }
             if epoch::can_propose(dbtx, &self.backoff, self.epoch_config()).await {
-                tracing::debug!("can propose: epoch");
+                tracing::info!("can propose: epoch");
                 return;
             }
 

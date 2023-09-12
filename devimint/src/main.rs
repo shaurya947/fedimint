@@ -154,17 +154,100 @@ async fn stability_pool_test(dev_fed: DevFed) -> Result<()> {
     assert_eq!(0, get_unlocked_sp_bal(&provider).await?);
 
     // Make Seeker and Provider deposit into the stability pool
-    // cmd!(seeker, "module", "--module", "3", "command", )
-    // verify ecash + unlocked balances for client 1 and 2
-    // client 1 seeker lock, client 2 provider bid
-    // verify staged actions for client 1 and 2
-    // wait for epoch start
-    // verify locked balances for client 1 and 2
-    // client 1 seeker unlock, client 2 provider bid with 0 amount
-    // wait for epoch end
-    // verify unlocked balances for client 1 and 2 contain payouts
-    // withdraw SP for client 1 + 2
-    // verify ecash + unlocked balances for client 1 and 2
+    deposit_into_sp(&seeker, 1_500_000).await?;
+    deposit_into_sp(&provider, 2_000_000).await?;
+
+    // Verify ecash and stability pool balances for seeker and provider
+    assert_eq!(seeker.balance().await?, 8_500_000);
+    assert_eq!(provider.balance().await?, 13_000_000);
+    assert_eq!(1_500_000, get_unlocked_sp_bal(&seeker).await?);
+    assert_eq!(2_000_000, get_unlocked_sp_bal(&provider).await?);
+
+    // Request to stage actions for seeker and provider
+    cmd!(
+        provider,
+        "module",
+        "--module=3",
+        "command",
+        "action",
+        "provider-bid",
+        format!("{}", 1000),
+        format!("{}", 1_000_000),
+    )
+    .out_json()
+    .await?;
+    cmd!(
+        seeker,
+        "module",
+        "--module=3",
+        "command",
+        "action",
+        "seeker-lock",
+        format!("{}", 1_500_000),
+    )
+    .out_json()
+    .await?;
+
+    // Verify staged actions for seeker and provider
+    // If command is successful it means there is a staged action
+    verify_staged_action_exists(&seeker).await?;
+    verify_staged_action_exists(&provider).await?;
+
+    wait_for_sp_epoch_change(&seeker).await?;
+    // Verify locked balances for seeker and provider
+    // It's a million msats each (plus fee for seeker) because
+    // that's the max the provider bid
+    assert_eq!(1_001_000, get_locked_sp_bal(&seeker).await?);
+    assert_eq!(1_000_000, get_locked_sp_bal(&provider).await?);
+
+    // Request to stage seeker unlock, and provider bid with 0 amount
+    cmd!(
+        provider,
+        "module",
+        "--module=3",
+        "command",
+        "action",
+        "provider-bid",
+        format!("{}", 1000),
+        format!("{}", 0),
+    )
+    .out_json()
+    .await?;
+    cmd!(
+        seeker,
+        "module",
+        "--module=3",
+        "command",
+        "action",
+        "seeker-unlock",
+        format!("{}", 1_000_000),
+    )
+    .out_json()
+    .await?;
+
+    wait_for_sp_epoch_change(&seeker).await?;
+    // Verify unlocked balances for seeker and provider contain payouts
+    // Price didn't change, so we expect seeker loss and provider gain
+    let (new_seeker_unlocked_bal, new_provider_unlocked_bal) = (
+        get_unlocked_sp_bal(&seeker).await?,
+        get_unlocked_sp_bal(&provider).await?,
+    );
+    assert!(new_seeker_unlocked_bal < 1_500_000);
+    assert!(new_provider_unlocked_bal > 2_000_000);
+
+    // Withdraw from stability pool for both seeker and provider
+    // Verify that their stability pool balances are 0
+    // Verify that their ecash balances have been filled
+    withdraw_from_sp(&seeker, new_seeker_unlocked_bal).await?;
+    withdraw_from_sp(&provider, new_provider_unlocked_bal).await?;
+    assert_eq!(0, get_unlocked_sp_bal(&seeker).await?);
+    assert_eq!(0, get_unlocked_sp_bal(&provider).await?);
+    assert_eq!(seeker.balance().await?, 8_500_000 + new_seeker_unlocked_bal);
+    assert_eq!(
+        provider.balance().await?,
+        13_000_000 + new_provider_unlocked_bal
+    );
+
     Ok(())
 }
 
@@ -179,6 +262,93 @@ async fn get_unlocked_sp_bal(client: &Client) -> Result<u64> {
         .ok_or(anyhow!("must have nested balance object"))?["unlocked"]
         .as_u64()
         .ok_or(anyhow!("unlocked balance must be valid u64"))?)
+}
+
+async fn get_locked_sp_bal(client: &Client) -> Result<u64> {
+    let cmd_out_json = cmd!(client, "module", "--module=3", "command", "balance")
+        .out_json()
+        .await?;
+    Ok(cmd_out_json["balance"]
+        .as_object()
+        .ok_or(anyhow!("must have balance object"))?["balance"]
+        .as_object()
+        .ok_or(anyhow!("must have nested balance object"))?["locked"]
+        .as_object()
+        .ok_or(anyhow!("must have nested locked object"))?["locked_value_msat"]
+        .as_u64()
+        .ok_or(anyhow!("locked balance must be valid u64"))?)
+}
+
+async fn deposit_into_sp(client: &Client, amount: u64) -> Result<()> {
+    cmd!(client, "module", "--module=3", "command", "deposit", amount)
+        .out_json()
+        .await?;
+    Ok(())
+}
+
+async fn withdraw_from_sp(client: &Client, amount: u64) -> Result<()> {
+    cmd!(
+        client,
+        "module",
+        "--module=3",
+        "command",
+        "withdraw",
+        amount
+    )
+    .out_json()
+    .await?;
+    Ok(())
+}
+
+async fn verify_staged_action_exists(client: &Client) -> Result<()> {
+    // Retry up to 10 times with 1s sleep to allow consensus to occur
+    let num_tries = 20;
+    for _ in 0..num_tries {
+        let result = cmd!(
+            client,
+            "module",
+            "--module=3",
+            "command",
+            "action",
+            "staged"
+        )
+        .out_json()
+        .await;
+
+        if result.is_ok() {
+            return Ok(());
+        }
+        fedimint_core::task::sleep(Duration::from_secs(1)).await;
+    }
+
+    Err(anyhow!("No staged action found after {num_tries} tries"))
+}
+
+// Waits for current Stability pool epoch to end and returns
+// the index of the next epoch that just started.
+async fn wait_for_sp_epoch_change(client: &Client) -> Result<u64> {
+    let current_epoch = cmd!(client, "module", "--module=3", "command", "epoch-next")
+        .out_json()
+        .await?["epoch_next"]
+        .as_object()
+        .expect("must have epoch_next object")["epoch_id"]
+        .as_u64()
+        .ok_or(anyhow!("must have u64 epoch ID"))?;
+
+    loop {
+        fedimint_core::task::sleep(Duration::from_secs(5)).await;
+        let maybe_next_epoch = cmd!(client, "module", "--module=3", "command", "epoch-next")
+            .out_json()
+            .await?["epoch_next"]
+            .as_object()
+            .expect("must have epoch_next object")["epoch_id"]
+            .as_u64()
+            .ok_or(anyhow!("must have u64 epoch ID"))?;
+
+        if maybe_next_epoch > current_epoch {
+            return Ok(maybe_next_epoch);
+        }
+    }
 }
 
 async fn cli_tests(dev_fed: DevFed) -> Result<()> {
