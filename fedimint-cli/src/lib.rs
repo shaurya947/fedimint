@@ -12,12 +12,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{fs, result};
 
+use bip39::Mnemonic;
 use clap::{CommandFactory, Parser, Subcommand};
 use fedimint_aead::{encrypted_read, encrypted_write, get_encryption_key};
+use fedimint_bip39::Bip39RootSecretStrategy;
 use fedimint_client::module::init::{
     ClientModuleInit, ClientModuleInitRegistry, IClientModuleInit,
 };
-use fedimint_client::secret::PlainRootSecretStrategy;
 use fedimint_client::sm::OperationId;
 use fedimint_client::{ClientBuilder, ClientSecret};
 use fedimint_core::admin_client::WsAdminClient;
@@ -321,7 +322,7 @@ impl Opts {
             .build_client_ng_builder(module_inits, invite_code)
             .await?;
         client_builder
-            .build::<PlainRootSecretStrategy>()
+            .build::<Bip39RootSecretStrategy>()
             .await
             .map_err_cli_general()
     }
@@ -548,8 +549,9 @@ impl FedimintCli {
                     .build_client_ng_builder(&self.module_inits, None)
                     .await
                     .map_err_cli_msg(CliErrorKind::GeneralFailure, "failure")?
-                    .build_restoring_from_backup(ClientSecret::<PlainRootSecretStrategy>::new(
-                        secret,
+                    .build_restoring_from_backup(ClientSecret::<Bip39RootSecretStrategy>::new(
+                        Mnemonic::from_str(&secret)
+                            .map_err_cli_msg(CliErrorKind::GeneralFailure, "bad mnemonic")?,
                     ))
                     .await
                     .map_err_cli_msg(CliErrorKind::GeneralFailure, "failure")?;

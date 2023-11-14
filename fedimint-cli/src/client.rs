@@ -8,8 +8,8 @@ use bitcoin::{secp256k1, Network};
 use bitcoin_hashes::hex;
 use bitcoin_hashes::hex::ToHex;
 use clap::Subcommand;
+use fedimint_bip39::Bip39RootSecretStrategy;
 use fedimint_client::backup::Metadata;
-use fedimint_client::secret::PlainRootSecretStrategy;
 use fedimint_client::sm::OperationId;
 use fedimint_client::Client;
 use fedimint_core::config::{ClientConfig, FederationId};
@@ -115,8 +115,9 @@ pub enum ClientCmd {
     /// Restore the previously created backup of mint notes (with `backup`
     /// command)
     Restore {
-        #[clap(value_parser = parse_secret)]
-        secret: [u8; 64],
+        // #[clap(value_parser = parse_secret)]
+        // secret: [u8; 64],
+        secret: String,
     },
     /// Print the secret key of the client
     PrintSecret,
@@ -362,11 +363,11 @@ pub async fn handle_ng_command(
             Ok(serde_json::to_value(()).unwrap())
         }
         ClientCmd::PrintSecret => {
-            let secret = client.get_secret::<PlainRootSecretStrategy>().await;
-            let hex_secret = hex::ToHex::to_hex(&secret[..]);
+            let secret = client.get_secret::<Bip39RootSecretStrategy>().await;
+            // let hex_secret = hex::ToHex::to_hex(&secret[..]);
 
             Ok(json!({
-                "secret": hex_secret,
+                "secret": secret,
             }))
         }
         ClientCmd::ListOperations { limit } => {
